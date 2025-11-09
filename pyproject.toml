@@ -1,7 +1,37 @@
 [project]
 name = "sim-doc-cluster"
 version = "0.1.0"
-description = "Add your description here"
+description = "Document similarity clustering system using Elasticsearch and Redis"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "click>=8.1.0",
+    "elasticsearch>=8.11.0",
+    "redis>=5.0.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "python-dotenv>=1.0.0",
+    "datasketch>=1.6.4",
+    "simhash>=2.1.0",
+    "mmh3>=3.0.0",
+    "httpx>=0.25.0",
+    "python-multipart>=0.0.6"
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.7.0"
+]

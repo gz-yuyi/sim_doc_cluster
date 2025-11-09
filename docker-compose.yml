@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: sim-doc-es
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - sim-doc-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: sim-doc-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - sim-doc-network
+
+  api:
+    build: .
+    container_name: sim-doc-api
+    ports:
+      - "8000:8000"
+    environment:
+      - ES_HOST=elasticsearch
+      - ES_PORT=9200
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - elasticsearch
+      - redis
+    networks:
+      - sim-doc-network
+    volumes:
+      - .:/app
+    command: uv run python main.py serve --host 0.0.0.0 --reload
+
+  worker:
+    build: .
+    container_name: sim-doc-worker
+    environment:
+      - ES_HOST=elasticsearch
+      - ES_PORT=9200
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - elasticsearch
+      - redis
+    networks:
+      - sim-doc-network
+    volumes:
+      - .:/app
+    command: uv run python main.py worker --count 100
+
+volumes:
+  es_data:
+  redis_data:
+
+networks:
+  sim-doc-network:
+    driver: bridge

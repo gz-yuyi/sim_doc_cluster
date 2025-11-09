@@ -1,0 +1,526 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "sim-doc-cluster",
+    "description": "Document Similarity Clustering System API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/articles/": {
+      "post": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "Submit Article",
+        "description": "Submit a new article for similarity processing.",
+        "operationId": "submit_article_api_v1_articles__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArticleCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Submit Article Api V1 Articles  Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/articles/{article_id}": {
+      "get": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "Get Article",
+        "description": "Get article details with cluster information.",
+        "operationId": "get_article_api_v1_articles__article_id__get",
+        "parameters": [
+          {
+            "name": "article_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Article Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Article Api V1 Articles  Article Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/articles/{article_id}/similar": {
+      "get": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "Get Similar Articles",
+        "description": "Get similar articles for a given article.",
+        "operationId": "get_similar_articles_api_v1_articles__article_id__similar_get",
+        "parameters": [
+          {
+            "name": "article_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Article Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Similar Articles Api V1 Articles  Article Id  Similar Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/articles/recheck": {
+      "post": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "Recheck Articles",
+        "description": "Trigger recheck for specified articles.",
+        "operationId": "recheck_articles_api_v1_articles_recheck_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Recheck Articles Api V1 Articles Recheck Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clusters/{cluster_id}": {
+      "get": {
+        "tags": [
+          "clusters"
+        ],
+        "summary": "Get Cluster",
+        "description": "Get cluster details.",
+        "operationId": "get_cluster_api_v1_clusters__cluster_id__get",
+        "parameters": [
+          {
+            "name": "cluster_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cluster Id"
+            }
+          },
+          {
+            "name": "include_articles",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Include all articles in the cluster",
+              "default": false,
+              "title": "Include Articles"
+            },
+            "description": "Include all articles in the cluster"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Cluster Api V1 Clusters  Cluster Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clusters/": {
+      "get": {
+        "tags": [
+          "clusters"
+        ],
+        "summary": "List Clusters",
+        "description": "List clusters with pagination and filtering.",
+        "operationId": "list_clusters_api_v1_clusters__get",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Page number",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "Page number"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Items per page",
+              "default": 20,
+              "title": "Page Size"
+            },
+            "description": "Items per page"
+          },
+          {
+            "name": "min_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Minimum cluster size",
+              "default": 2,
+              "title": "Min Size"
+            },
+            "description": "Minimum cluster size"
+          },
+          {
+            "name": "max_age_minutes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Maximum age in minutes",
+              "title": "Max Age Minutes"
+            },
+            "description": "Maximum age in minutes"
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Sort field and order",
+              "default": "last_updated:desc",
+              "title": "Sort"
+            },
+            "description": "Sort field and order"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Clusters Api V1 Clusters  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/system/health": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Health Check",
+        "description": "Check system health.",
+        "operationId": "health_check_api_v1_system_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Health Check Api V1 System Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ArticleCreate": {
+        "properties": {
+          "article_id": {
+            "type": "string",
+            "title": "Article Id",
+            "description": "Unique identifier for the article"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "Article title"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 200000,
+            "title": "Content",
+            "description": "Article content (max 200k chars)"
+          },
+          "publish_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Publish Time",
+            "description": "Publication time"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "Source of the article"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language",
+            "description": "Article language",
+            "default": "zh-CN"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata",
+            "description": "Additional metadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "article_id",
+          "title",
+          "content",
+          "publish_time",
+          "source"
+        ],
+        "title": "ArticleCreate",
+        "description": "Model for creating a new article."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "RecheckRequest": {
+        "properties": {
+          "article_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Article Ids"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "description": "Reason for recheck",
+            "default": "manual_review"
+          }
+        },
+        "type": "object",
+        "required": [
+          "article_ids"
+        ],
+        "title": "RecheckRequest",
+        "description": "Request model for article recheck."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
