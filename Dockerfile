@@ -18,11 +18,6 @@ RUN pip install uv
 # Install Python dependencies
 RUN uv sync --frozen --no-dev --no-cache
 
-# Create non-root user
-RUN useradd --create-home --shell /bin/bash app \
-    && chown -R app:app /app
-USER app
-
 # Expose port
 EXPOSE 8000
 
