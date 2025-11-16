@@ -2,14 +2,13 @@
 
 import uuid
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Set
+from typing import List, Optional
 
-from src.config import settings
 from src.es_client import es_client
 from src.models import (
-    Article, ArticleCreate, Cluster, ArticleSubmissionResponse,
+    Article, ArticleCreate, ArticleTag, ArticleTopic, Cluster,
     ArticleResponse, SimilarArticlesResponse, ClusterResponse,
-    ClusterListResponse, RecheckResponse, HealthCheckResponse
+    RecheckResponse, HealthCheckResponse
 )
 from src.redis_client import redis_client
 from src.similarity import similarity_calculator
@@ -24,21 +23,29 @@ class ArticleService:
         self.redis = redis_client
         self.similarity = similarity_calculator
     
-    def submit_article(self, article_data: ArticleCreate) -> ArticleSubmissionResponse:
-        """Submit a new article for similarity processing."""
-        trace_id = str(uuid.uuid4())
-        
-        # Check if article already exists
+    def submit_article(self, article_data: ArticleCreate) -> None:
+        """Submit or update an article for similarity processing."""
         existing_article = self.es.get_article(article_data.article_id)
+        now_iso = datetime.utcnow().isoformat()
+        
+        common_fields = {
+            "title": article_data.title,
+            "content": article_data.content,
+            "publish_time": article_data.publish_time.isoformat(),
+            "source": article_data.source,
+            "state": article_data.state,
+            "top": article_data.top,
+            "tags": [tag.model_dump() for tag in article_data.tags],
+            "topic": [topic.model_dump() for topic in article_data.topic],
+            "tag_ids": [str(tag.id) for tag in article_data.tags],
+            "topic_ids": [topic.id for topic in article_data.topic],
+            "updated_at": now_iso
+        }
+        
         if existing_article:
-            return ArticleSubmissionResponse(
-                article_id=article_data.article_id,
-                cluster_status=existing_article.get("cluster_status", "pending"),
-                cluster_id=existing_article.get("cluster_id"),
-                candidate_cluster_id=existing_article.get("cluster_id"),
-                finalize_eta_ms=0,
-                trace_id=trace_id
-            )
+            # Update mutable fields for idempotent submissions
+            self.es.update_article(article_data.article_id, common_fields)
+            return
         
         # Prepare full text for feature extraction
         full_text = f"{article_data.title} {article_data.content}"
@@ -54,35 +61,20 @@ class ArticleService:
             duplicate_article = exact_duplicates[0]
             cluster_id = duplicate_article.get("cluster_id")
             
-            # Create article document
             article_doc = {
                 "article_id": article_data.article_id,
-                "title": article_data.title,
-                "content": article_data.content,
-                "publish_time": article_data.publish_time.isoformat(),
-                "source": article_data.source,
-                "language": article_data.language,
-                "metadata": article_data.metadata or {},
+                **common_fields,
                 "simhash": features["simhash"],
                 "minhash_signature": features["minhash_signature"],
+                "shingles": features["shingles"],
                 "cluster_id": cluster_id,
                 "cluster_status": "matched",
                 "similarity_score": 1.0,
-                "created_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat()
+                "created_at": now_iso
             }
             
-            # Index article
             self.es.index_article(article_doc)
-            
-            return ArticleSubmissionResponse(
-                article_id=article_data.article_id,
-                cluster_status="matched",
-                cluster_id=cluster_id,
-                candidate_cluster_id=cluster_id,
-                finalize_eta_ms=0,
-                trace_id=trace_id
-            )
+            return
         
         # Search for candidates using MinHash LSH
         candidates = self.es.search_minhash_candidates(features["minhash_signature"])
@@ -104,20 +96,14 @@ class ArticleService:
         # Create article document
         article_doc = {
             "article_id": article_data.article_id,
-            "title": article_data.title,
-            "content": article_data.content,
-            "publish_time": article_data.publish_time.isoformat(),
-            "source": article_data.source,
-            "language": article_data.language,
-            "metadata": article_data.metadata or {},
+            **common_fields,
             "simhash": features["simhash"],
             "minhash_signature": features["minhash_signature"],
             "shingles": features["shingles"],
             "cluster_id": None,
             "cluster_status": "pending",
             "similarity_score": None,
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat()
+            "created_at": now_iso
         }
         
         # Index article
@@ -141,16 +127,7 @@ class ArticleService:
             "shingles": features["shingles"],
             "candidates": candidate_data
         }
-        job_id = self.redis.enqueue_similarity_job(job_data)
-        
-        return ArticleSubmissionResponse(
-            article_id=article_data.article_id,
-            cluster_status="pending",
-            cluster_id=None,
-            candidate_cluster_id=candidate_cluster_id,
-            finalize_eta_ms=120,
-            trace_id=trace_id
-        )
+        self.redis.enqueue_similarity_job(job_data)
     
     def get_article(self, article_id: str) -> Optional[ArticleResponse]:
         """Get article details with cluster information."""
@@ -167,6 +144,10 @@ class ArticleService:
             title=article_data["title"],
             publish_time=datetime.fromisoformat(article_data["publish_time"]),
             source=article_data["source"],
+            state=article_data.get("state", 1),
+            top=article_data.get("top", 0),
+            tags=[ArticleTag(**tag) for tag in article_data.get("tags", [])],
+            topic=[ArticleTopic(**topic) for topic in article_data.get("topic", [])],
             cluster_id=article_data.get("cluster_id"),
             cluster_status=article_data.get("cluster_status", "pending"),
             similarity_score=article_data.get("similarity_score"),
@@ -330,6 +311,10 @@ class ClusterService:
                     title=article_data["title"],
                     publish_time=datetime.fromisoformat(article_data["publish_time"]),
                     source=article_data["source"],
+                    state=article_data.get("state", 1),
+                    top=article_data.get("top", 0),
+                    tags=[ArticleTag(**tag) for tag in article_data.get("tags", [])],
+                    topic=[ArticleTopic(**topic) for topic in article_data.get("topic", [])],
                     cluster_id=article_data.get("cluster_id"),
                     cluster_status=article_data.get("cluster_status", "pending"),
                     similarity_score=article_data.get("similarity_score"),
@@ -344,28 +329,34 @@ class ClusterService:
             trace_id=trace_id
         )
     
-    def list_clusters(self, page: int = 1, page_size: int = 20, min_size: int = 2,
-                     max_age_minutes: Optional[int] = None, sort: str = "last_updated:desc") -> ClusterListResponse:
-        """List clusters with pagination and filtering."""
-        trace_id = str(uuid.uuid4())
-        
-        # Get clusters from Elasticsearch
-        result = self.es.list_clusters(
+    def search_articles(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        sort: Optional[str] = None,
+        state: Optional[int] = None,
+        top: Optional[int] = None,
+        title: Optional[str] = None,
+        source: Optional[str] = None,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        tag_id: Optional[str] = None,
+        topic_ids: Optional[List[str]] = None
+    ) -> List[str]:
+        """Search articles by metadata filters."""
+        return self.es.search_articles(
             page=page,
             page_size=page_size,
-            min_size=min_size,
-            max_age_minutes=max_age_minutes,
-            sort=sort
-        )
-        
-        return ClusterListResponse(
-            clusters=result["clusters"],
-            pagination={
-                "page": result["page"],
-                "page_size": result["page_size"],
-                "total": result["total"]
-            },
-            trace_id=trace_id
+            sort=sort or "publish_time:desc",
+            state=state,
+            top=top,
+            title=title,
+            source=source,
+            start_time=start_time,
+            end_time=end_time,
+            tag_id=tag_id,
+            topic_ids=topic_ids or []
         )
 
 

@@ -6,6 +6,20 @@ from typing import Dict, List, Optional, Union
 from pydantic import BaseModel, Field
 
 
+class ArticleTag(BaseModel):
+    """Tag attached to an article."""
+    
+    id: int = Field(..., description="Tag identifier")
+    name: str = Field(..., description="Tag name")
+
+
+class ArticleTopic(BaseModel):
+    """Topic attached to an article."""
+    
+    id: str = Field(..., description="Topic identifier")
+    name: str = Field(..., description="Topic label")
+
+
 class ArticleCreate(BaseModel):
     """Model for creating a new article."""
     
@@ -14,10 +28,10 @@ class ArticleCreate(BaseModel):
     content: str = Field(..., max_length=200000, description="Article content (max 200k chars)")
     publish_time: datetime = Field(..., description="Publication time")
     source: str = Field(..., description="Source of the article")
-    language: str = Field(default="zh-CN", description="Article language")
-    metadata: Optional[Dict[str, Union[str, int, float, bool]]] = Field(
-        default=None, description="Additional metadata"
-    )
+    state: int = Field(..., ge=0, le=2, description="Article visibility state (0,1,2)")
+    top: int = Field(..., ge=0, le=1, description="Whether the article is pinned (0/1)")
+    tags: List[ArticleTag] = Field(default_factory=list, description="List of tags")
+    topic: List[ArticleTopic] = Field(default_factory=list, description="List of topics")
 
 
 class Article(BaseModel):
@@ -27,6 +41,10 @@ class Article(BaseModel):
     title: str
     publish_time: datetime
     source: str
+    state: int = Field(default=1, description="Article visibility state")
+    top: int = Field(default=0, description="Pin flag")
+    tags: List[ArticleTag] = Field(default_factory=list)
+    topic: List[ArticleTopic] = Field(default_factory=list)
     cluster_id: Optional[str] = None
     cluster_status: str = Field(default="pending", description="pending/matched/unique")
     similarity_score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
@@ -61,30 +79,11 @@ class ClusterResponse(BaseModel):
     trace_id: str
 
 
-class ClusterListResponse(BaseModel):
-    """Response model for cluster list queries."""
-    
-    clusters: List[Dict[str, Union[str, int, datetime]]]
-    pagination: Dict[str, Union[int, str]]
-    trace_id: str
-
-
 class SimilarArticlesResponse(BaseModel):
     """Response model for similar articles queries."""
     
     cluster_id: str
     articles: List[Dict[str, Union[str, float]]]
-    trace_id: str
-
-
-class ArticleSubmissionResponse(BaseModel):
-    """Response model for article submission."""
-    
-    article_id: str
-    cluster_status: str
-    cluster_id: Optional[str] = None
-    candidate_cluster_id: Optional[str] = None
-    finalize_eta_ms: int = Field(default=120, description="Estimated processing time in ms")
     trace_id: str
 
 
@@ -116,6 +115,12 @@ class ErrorResponse(BaseModel):
     
     error: Dict[str, str]
     trace_id: str
+
+
+class ArticleSearchResponse(BaseModel):
+    """Response for article search endpoint."""
+    
+    article_id: List[str]
 
 
 class SimilarityJob(BaseModel):

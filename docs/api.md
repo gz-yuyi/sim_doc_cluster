@@ -43,6 +43,15 @@ HTTP 状态码与 `error.code` 对齐，如参数错误返回 `400 BAD_REQUEST`�
   "content": "<全文字符串，<=200k 字符>",
   "publish_time": "2024-11-09T08:31:15Z",
   "source": "news_link",
+  "state": 1,
+  "top": 0,
+  "tags": [
+    {"id": 1001, "name": "A股"},
+    {"id": 1002, "name": "收涨"}
+  ],
+  "topic": [
+    {"id": "topic_macro", "name": "宏观经济"}
+  ],
   "cluster_id": "cluster_5f843c29",
   "cluster_status": "matched",
   "similarity_score": 0.87,
@@ -53,6 +62,10 @@ HTTP 状态码与 `error.code` 对齐，如参数错误返回 `400 BAD_REQUEST`�
 
 | 字段 | 说明 |
 |------|------|
+| `state` | 文章可见状态：`0` 不可见、`1` 可见、`2` 删除 |
+| `top` | 是否置顶：`0` 否、`1` 是 |
+| `tags` | 标签列表，元素包含 `id:number` + `name:string`，用于后续召回和前端展示 |
+| `topic` | 主题列表，元素包含 `id:string` + `name:string`，用于专题聚合 |
 | `cluster_status` | `pending`（等待后台精确比对）、`matched`（已找到相似组）、`unique`（确认无相似） |
 | `similarity_score` | 新文章与当前簇代表的最大 Jaccard 值（0-1），`unique` 时为空 |
 
@@ -88,7 +101,7 @@ HTTP 状态码与 `error.code` 对齐，如参数错误返回 `400 BAD_REQUEST`�
 | `GET` | `/api/v1/articles/{article_id}` | 查询单篇文章及其 cluster 状态 |
 | `GET` | `/api/v1/articles/{article_id}/similar` | 获取文章所属组合及成员 |
 | `GET` | `/api/v1/clusters/{cluster_id}` | 查询组合详情 |
-| `GET` | `/api/v1/clusters` | 分页列出组合，支持过滤 |
+| `GET` | `/api/v1/clusters` | 文章搜索接口（返回符合条件的文章 ID 列表） |
 | `POST` | `/api/v1/articles/recheck` | 触发指定文章重新比对（人工复核入口） |
 | `GET` | `/api/v1/system/health` | 系统健康检查（ES、队列、worker） |
 
@@ -100,7 +113,7 @@ HTTP 状态码与 `error.code` 对齐，如参数错误返回 `400 BAD_REQUEST`�
 
 ### 5.1 `POST /api/v1/articles`
 
-**用途**：接收新增文章，返回初步 cluster 状态。内部会写 ES 并投递到 `similarity_jobs` 队列，精确验证在后台完成。
+**用途**：同步文章本体信息（含业务状态、标签、主题），触发后台相似度计算任务。接口幂等，`article_id` 已存在时更新可变字段（如状态、标签）。
 
 **请求体**
 
@@ -108,36 +121,42 @@ HTTP 状态码与 `error.code` 对齐，如参数错误返回 `400 BAD_REQUEST`�
 {
   "article_id": "202411090001",
   "title": "A 股三大指数集体收涨",
-  "content": "……",
+  "content": "<全文字符串，<=200k 字符>",
   "publish_time": "2024-11-09T08:31:15Z",
   "source": "news_link",
-  "language": "zh-CN",
-  "metadata": {
-    "channel": "finance",
-    "url": "https://news.example.com/1"
-  }
+  "state": 1,
+  "top": 0,
+  "tags": [
+    {"id": 1001, "name": "A股"},
+    {"id": 1002, "name": "收涨"}
+  ],
+  "topic": [
+    {"id": "topic_macro", "name": "宏观经济"}
+  ]
 }
 ```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `article_id` | string | 全局唯一 ID，作为幂等键，必填 |
+| `title` | string | 文章标题，必填 |
+| `content` | string | 文章正文，最大 200000 字符，必填 |
+| `publish_time` | string(date-time) | 发布时间（ISO8601），必填 |
+| `source` | string | 来源平台或渠道，必填 |
+| `state` | integer | 文章状态：`0` 不可见、`1` 可见、`2` 删除，必填 |
+| `top` | integer | 置顶标记：`0` 否、`1` 是，必填 |
+| `tags` | array<object> | 必填，标签列表，元素包含 `id:number`（标签 ID）与 `name:string`（标签名称），可传空数组 |
+| `topic` | array<object> | 必填，主题列表，元素包含 `id:string` 与 `name:string`，可传空数组 |
+
+> `tags` 与 `topic` 同时用于业务展示和相似度的召回限制，如果无可用值请传空数组，避免缺省字段影响 schema 校验。
 
 **响应示例**
 
 ```json
-{
-  "article_id": "202411090001",
-  "cluster_status": "pending",
-  "cluster_id": null,
-  "candidate_cluster_id": "cluster_5f843c29",
-  "finalize_eta_ms": 120,
-  "trace_id": "b72e1d5fe0c94d27a6a3f2168ea20d83"
-}
+{}
 ```
 
-| 字段 | 描述 |
-|------|------|
-| `candidate_cluster_id` | 通过 MinHash 召回的最优组合（可用于前端占位） |
-| `finalize_eta_ms` | 预估剩余处理时间，便于前端轮询 |
-
-**幂等性**：`article_id` 作为幂等键，再次提交同 ID 返回已有记录。
+接口成功返回 `200 OK` 和空对象，表示同步任务已写入。文章初始 cluster 状态可以随后通过 `GET /api/v1/articles/{article_id}` 查询。若需要 `candidate_cluster_id` 等实时信息，可在查询接口中获取。
 
 ---
 
@@ -243,34 +262,39 @@ HTTP 状态码与 `error.code` 对齐，如参数错误返回 `400 BAD_REQUEST`�
 
 ### 5.5 `GET /api/v1/clusters`
 
-**用途**：分页列出相似组合，便于后台运营/展示。
+**用途**：文章搜索接口。根据文章状态、置顶、标题、来源、时间区间、标签、主题等条件搜索，并返回满足条件的文章 ID 列表。用于前端或运营系统先拿到文章集合，再通过 `GET /api/v1/articles/{id}` 批量获取详情。
 
-**查询参数**
+**查询参数（均为可选）**
 
-| 参数 | 默认 | 说明 |
+| 参数 | 类型 | 说明 |
 |------|------|------|
-| `page` | 1 | 页码（≥1） |
-| `page_size` | 20 | 每页数量，<=100 |
-| `min_size` | 2 | 最小组合成员数 |
-| `max_age_minutes` | - | 仅返回最近 N 分钟内更新的组合 |
-| `sort` | `last_updated:desc` | 支持 `size`、`last_updated` |
+| `page` | integer | 页码，默认 `1` |
+| `page_size` | integer | 每页数量，默认 `20`，建议 ≤100 |
+| `sort` | string | 排序字段与方向，如 `publish_time:desc` |
+| `state` | integer | 文章状态：`0` 不可见、`1` 可见、`2` 删除 |
+| `top` | integer | 是否置顶：`0` 否、`1` 是 |
+| `title` | string | 标题模糊搜索关键词 |
+| `source` | integer | 来源平台 ID |
+| `start_time` | string | 发布时间范围起点，ISO8601 |
+| `end_time` | string | 发布时间范围终点，ISO8601 |
+| `tag_id` | string | 一级标签 ID |
+| `topic` | array<string> | 主题 ID 列表，支持多选（重复 query 参数或 JSON 数组均可） |
 
 **响应示例**
 
 ```json
 {
-  "clusters": [
-    {"cluster_id": "cluster_5f843c29", "size": 3, "last_updated": "2024-11-09T08:31:18Z"},
-    {"cluster_id": "cluster_3d8a1c02", "size": 5, "last_updated": "2024-11-09T08:29:02Z"}
-  ],
-  "pagination": {
-    "page": 1,
-    "page_size": 20,
-    "total": 642
-  },
-  "trace_id": "c8bd6ae6bce8481abef864d4af9f9cf8"
+  "article_id": [
+    "202411081120",
+    "202411090001",
+    "202411090243"
+  ]
 }
 ```
+
+| 字段 | 说明 |
+|------|------|
+| `article_id` | 符合搜索条件的文章 ID 列表。若需要分页信息，可在响应头补充或扩展字段；当前版本仅返回 ID 数组。 |
 
 ---
 
@@ -322,8 +346,8 @@ HTTP 状态码与 `error.code` 对齐，如参数错误返回 `400 BAD_REQUEST`�
 
 ## 6. 典型调用流程
 
-1. **入库**：调用 `POST /articles` 提交文章，立即得到 `cluster_status=pending`。
-2. **轮询**：前端按 `finalize_eta_ms` 间隔轮询 `GET /articles/{id}`。
+1. **入库**：调用 `POST /articles` 提交文章，立即得到 `200 OK`。
+2. **轮询**：前端按业务配置的时间间隔（建议 1~3s）轮询 `GET /articles/{id}`。
 3. **展示组合**：一旦状态为 `matched`，调用 `GET /articles/{id}/similar` 渲染组合。
 4. **后台审核**：运营通过 `GET /clusters` 浏览组合，必要时 `POST /articles/recheck` 触发复核。
 
@@ -352,4 +376,3 @@ HTTP 状态码与 `error.code` 对齐，如参数错误返回 `400 BAD_REQUEST`�
 - `v2`（预研）：引入多模态指纹（标题图片 + 文本），支持跨语言相似度。
 
 若接口有重大变动，将在 `/api/v2` 提供并保留 v1 至少 6 个月。
-

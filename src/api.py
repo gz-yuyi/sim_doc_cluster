@@ -1,16 +1,13 @@
 """FastAPI routes and API endpoints for the document similarity clustering system."""
 
-from typing import Optional
+from datetime import datetime
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import settings
-from src.models import (
-    ArticleCreate, ArticleResponse, SimilarArticlesResponse,
-    ClusterResponse, ClusterListResponse, RecheckRequest, RecheckResponse,
-    HealthCheckResponse
-)
+from src.models import ArticleCreate, ArticleSearchResponse, RecheckRequest
 from src.services import article_service, cluster_service, health_service
 from src.utils import generate_trace_id, raise_http_exception, validate_article_id, validate_cluster_id
 
@@ -46,8 +43,8 @@ async def submit_article(article: ArticleCreate):
         )
     
     try:
-        response = article_service.submit_article(article)
-        return response.dict()
+        article_service.submit_article(article)
+        return {}
     except Exception as e:
         raise_http_exception(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -169,52 +166,50 @@ async def get_cluster(
     return response.dict()
 
 
-@cluster_router.get("/", response_model=dict)
-async def list_clusters(
+@cluster_router.get("/", response_model=ArticleSearchResponse)
+async def search_articles(
     page: int = Query(default=1, ge=1, description="Page number"),
     page_size: int = Query(default=20, ge=1, le=100, description="Items per page"),
-    min_size: int = Query(default=2, ge=1, description="Minimum cluster size"),
-    max_age_minutes: Optional[int] = Query(default=None, ge=1, description="Maximum age in minutes"),
-    sort: str = Query(default="last_updated:desc", description="Sort field and order")
+    sort: Optional[str] = Query(default=None, description="Sort field and order"),
+    state: Optional[int] = Query(default=None, ge=0, le=2, description="Article state"),
+    top: Optional[int] = Query(default=None, ge=0, le=1, description="Pinned flag"),
+    title: Optional[str] = Query(default=None, description="Title keyword for fuzzy search"),
+    source: Optional[int] = Query(default=None, description="Source platform ID"),
+    start_time: Optional[datetime] = Query(default=None, description="Start publish time"),
+    end_time: Optional[datetime] = Query(default=None, description="End publish time"),
+    tag_id: Optional[str] = Query(default=None, description="Primary tag ID"),
+    topic: Optional[List[str]] = Query(default=None, description="Topic IDs (multi-select)")
 ):
-    """List clusters with pagination and filtering."""
+    """Search articles by metadata and return matching article IDs."""
     trace_id = generate_trace_id()
     
-    # Validate sort parameter
-    valid_sort_fields = ["size", "last_updated"]
-    valid_sort_orders = ["asc", "desc"]
-    
-    if ":" not in sort:
-        raise_http_exception(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            error_code="INVALID_ARGUMENT",
-            message="Sort parameter must be in format 'field:order'",
-            trace_id=trace_id
-        )
-    
-    sort_field, sort_order = sort.split(":")
-    if sort_field not in valid_sort_fields or sort_order not in valid_sort_orders:
-        raise_http_exception(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            error_code="INVALID_ARGUMENT",
-            message=f"Invalid sort parameter. Valid fields: {valid_sort_fields}, orders: {valid_sort_orders}",
-            trace_id=trace_id
-        )
-    
     try:
-        response = cluster_service.list_clusters(
+        article_ids = cluster_service.search_articles(
             page=page,
             page_size=page_size,
-            min_size=min_size,
-            max_age_minutes=max_age_minutes,
-            sort=sort
+            sort=sort,
+            state=state,
+            top=top,
+            title=title,
+            source=str(source) if source is not None else None,
+            start_time=start_time.isoformat() if start_time else None,
+            end_time=end_time.isoformat() if end_time else None,
+            tag_id=tag_id,
+            topic_ids=topic
         )
-        return response.dict()
+        return {"article_id": article_ids}
+    except ValueError as e:
+        raise_http_exception(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="INVALID_ARGUMENT",
+            message=str(e),
+            trace_id=trace_id
+        )
     except Exception as e:
         raise_http_exception(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             error_code="INTERNAL_ERROR",
-            message=f"Failed to list clusters: {str(e)}",
+            message=f"Failed to search articles: {str(e)}",
             trace_id=trace_id
         )
 

@@ -39,8 +39,24 @@ class ElasticsearchClient:
                         "content": {"type": "text", "analyzer": "ik_max_word"},
                         "publish_time": {"type": "date"},
                         "source": {"type": "keyword"},
-                        "language": {"type": "keyword"},
-                        "metadata": {"type": "object", "enabled": False},
+                        "state": {"type": "integer"},
+                        "top": {"type": "integer"},
+                        "tags": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "integer"},
+                                "name": {"type": "keyword"}
+                            }
+                        },
+                        "topic": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "keyword"},
+                                "name": {"type": "keyword"}
+                            }
+                        },
+                        "tag_ids": {"type": "keyword"},
+                        "topic_ids": {"type": "keyword"},
                         "simhash": {"type": "keyword"},
                         "minhash_signature": {"type": "keyword"},
                         "cluster_id": {"type": "keyword"},
@@ -198,52 +214,80 @@ class ElasticsearchClient:
         response = self.client.search(index=self.articles_index, body=query)
         return [hit["_source"] for hit in response["hits"]["hits"]]
     
-    def list_clusters(self, page: int = 1, page_size: int = 20, min_size: int = 2,
-                     max_age_minutes: Optional[int] = None, sort: str = "last_updated:desc") -> Dict[str, Any]:
-        """List clusters with pagination and filtering."""
+    def search_articles(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        sort: str = "publish_time:desc",
+        state: Optional[int] = None,
+        top: Optional[int] = None,
+        title: Optional[str] = None,
+        source: Optional[str] = None,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        tag_id: Optional[str] = None,
+        topic_ids: Optional[List[str]] = None
+    ) -> List[str]:
+        """Search articles by metadata filters and return article IDs."""
         from_ = (page - 1) * page_size
+        valid_sort_fields = {"publish_time", "created_at", "updated_at"}
         
-        # Build query
-        query = {"query": {"bool": {"filter": []}}}
+        if ":" not in sort:
+            raise ValueError("Sort parameter must be in format 'field:order'")
         
-        # Add minimum size filter
-        query["query"]["bool"]["filter"].append({"range": {"size": {"gte": min_size}}})
+        sort_field, sort_order = sort.split(":")
+        if sort_field not in valid_sort_fields or sort_order not in {"asc", "desc"}:
+            raise ValueError(f"Invalid sort parameter. Valid fields: {sorted(valid_sort_fields)}, orders: ['asc', 'desc']")
         
-        # Add age filter if specified
-        if max_age_minutes:
-            now = datetime.utcnow()
-            min_time = now.replace(second=0, microsecond=0).timestamp() * 1000
-            query["query"]["bool"]["filter"].append({
-                "range": {"last_updated": {"gte": f"now-{max_age_minutes}m/m"}}
+        bool_query: Dict[str, Any] = {"filter": []}
+        must_queries: List[Dict[str, Any]] = []
+        
+        if state is not None:
+            bool_query["filter"].append({"term": {"state": state}})
+        if top is not None:
+            bool_query["filter"].append({"term": {"top": top}})
+        if source:
+            bool_query["filter"].append({"term": {"source": source}})
+        if tag_id:
+            bool_query["filter"].append({"term": {"tag_ids": tag_id}})
+        if topic_ids:
+            bool_query["filter"].append({"terms": {"topic_ids": topic_ids}})
+        if start_time or end_time:
+            range_filter: Dict[str, Any] = {}
+            if start_time:
+                range_filter["gte"] = start_time
+            if end_time:
+                range_filter["lte"] = end_time
+            bool_query["filter"].append({"range": {"publish_time": range_filter}})
+        if title:
+            must_queries.append({
+                "match": {
+                    "title": {
+                        "query": title,
+                        "operator": "and"
+                    }
+                }
             })
         
-        # Add sorting
-        sort_field, sort_order = sort.split(":")
-        query["sort"] = [{sort_field: {"order": sort_order}}]
+        query_body: Dict[str, Any] = {
+            "query": {
+                "bool": bool_query
+            },
+            "from": from_,
+            "size": page_size,
+            "sort": [{sort_field: {"order": sort_order}}]
+        }
+        
+        if must_queries:
+            query_body["query"]["bool"]["must"] = must_queries
         
         response = self.client.search(
-            index=self.clusters_index,
-            body=query,
-            from_=from_,
-            size=page_size
+            index=self.articles_index,
+            body=query_body
         )
         
-        total = response["hits"]["total"]["value"]
-        clusters = [
-            {
-                "cluster_id": hit["_source"]["cluster_id"],
-                "size": hit["_source"]["size"],
-                "last_updated": hit["_source"]["last_updated"]
-            }
-            for hit in response["hits"]["hits"]
-        ]
-        
-        return {
-            "clusters": clusters,
-            "total": total,
-            "page": page,
-            "page_size": page_size
-        }
+        return [hit["_source"]["article_id"] for hit in response["hits"]["hits"]]
     
     def get_cluster_stats(self) -> Dict[str, Any]:
         """Get cluster statistics."""
