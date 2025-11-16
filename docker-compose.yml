@@ -2,32 +2,27 @@ version: '3.8'
 
 services:
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    image: crpi-lxfoqbwevmx9mc1q.cn-chengdu.personal.cr.aliyuncs.com/yuyi_tech/elasticsearch:8.11.3-ik
     container_name: sim-doc-es
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-    ports:
-      - "9200:9200"
-      - "9300:9300"
+      - "ES_JAVA_OPTS=-Xms4g -Xmx4g"
     volumes:
       - es_data:/usr/share/elasticsearch/data
     networks:
       - sim-doc-network
 
   redis:
-    image: redis:7-alpine
+    image: m.daocloud.io/docker.io/redis:7-alpine
     container_name: sim-doc-redis
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     networks:
       - sim-doc-network
 
   api:
-    build: .
+    image: crpi-lxfoqbwevmx9mc1q.cn-chengdu.personal.cr.aliyuncs.com/yuyi_tech/sim-doc-cluster:latest
     container_name: sim-doc-api
     ports:
       - "8000:8000"
@@ -46,7 +41,7 @@ services:
     command: uv run python main.py serve --host 0.0.0.0 --reload
 
   worker:
-    build: .
+    image: crpi-lxfoqbwevmx9mc1q.cn-chengdu.personal.cr.aliyuncs.com/yuyi_tech/sim-doc-cluster:latest
     container_name: sim-doc-worker
     environment:
       - ES_HOST=elasticsearch
