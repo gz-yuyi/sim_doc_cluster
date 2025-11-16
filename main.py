@@ -150,6 +150,122 @@ def openapi(output):
     click.echo(f"✓ OpenAPI specification exported to {output_path}")
 
 
+@cli.command("integration-test")
+@click.option("--base-url", default="http://localhost:8000", show_default=True, help="Service base URL")
+@click.option("--timeout", default=10, show_default=True, type=int, help="HTTP request timeout in seconds")
+def integration_test(base_url, timeout):
+    """Run integration tests against the API service."""
+    import uuid
+    from datetime import datetime, timezone
+
+    import httpx
+
+    click.echo(f"Running integration tests against {base_url}")
+    click.echo("-" * 60)
+
+    results = []
+
+    def record(step: str, success: bool, detail: str = ""):
+        status_icon = "✅" if success else "❌"
+        message = f"{status_icon} {step}"
+        if detail:
+            message += f" - {detail}"
+        click.echo(message)
+        results.append(success)
+    
+    def format_error(response: httpx.Response | None, error: Exception) -> str:
+        """Return detailed error information for debugging."""
+        if response is None:
+            return str(error)
+        try:
+            body = response.json()
+        except Exception:  # noqa: BLE001
+            body = response.text
+        return f"{error} | status={response.status_code} body={body}"
+
+    article_id = f"it_{uuid.uuid4().hex[:12]}"
+    publish_time = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    test_title = f"Integration Test {article_id}"
+
+    try:
+        with httpx.Client(base_url=base_url, timeout=timeout) as client:
+            # Health check
+            try:
+                resp = client.get("/api/v1/system/health")
+                resp.raise_for_status()
+                data = resp.json()
+                record("Health endpoint", True, f"status={data.get('status')}")
+            except Exception as exc:  # noqa: BLE001
+                detail = format_error(locals().get("resp"), exc)
+                record("Health endpoint", False, detail)
+
+            # Submit article
+            payload = {
+                "article_id": article_id,
+                "title": test_title,
+                "content": "Integration test content",
+                "publish_time": publish_time,
+                "source": "integration_test",
+                "state": 1,
+                "top": 0,
+                "tags": [{"id": 9999, "name": "integration"}],
+                "topic": [{"id": "topic_integration", "name": "integration"}],
+            }
+            try:
+                resp = client.post("/api/v1/articles/", json=payload)
+                resp.raise_for_status()
+                record("Submit article", True)
+            except Exception as exc:  # noqa: BLE001
+                detail = format_error(locals().get("resp"), exc)
+                record("Submit article", False, detail)
+
+            # Fetch article
+            try:
+                resp = client.get(f"/api/v1/articles/{article_id}")
+                resp.raise_for_status()
+                data = resp.json()
+                returned_id = data.get("article", {}).get("article_id")
+                record("Fetch article", returned_id == article_id, f"id={returned_id}")
+            except Exception as exc:  # noqa: BLE001
+                detail = format_error(locals().get("resp"), exc)
+                record("Fetch article", False, detail)
+
+            # Similar articles (expected 404 while pending or 200 if ready)
+            try:
+                resp = client.get(f"/api/v1/articles/{article_id}/similar")
+                if resp.status_code == 404:
+                    error_code = resp.json().get("error", {}).get("code")
+                    expected = error_code == "CLUSTER_PENDING"
+                    record("Similar articles", expected, f"status=404 code={error_code}")
+                else:
+                    resp.raise_for_status()
+                    record("Similar articles", True, "status=200")
+            except Exception as exc:  # noqa: BLE001
+                detail = format_error(locals().get("resp"), exc)
+                record("Similar articles", False, detail)
+
+            # Search article by title keyword
+            try:
+                resp = client.get("/api/v1/clusters", params={"title": test_title})
+                resp.raise_for_status()
+                data = resp.json()
+                ids = data.get("article_id", [])
+                record("Article search", article_id in ids, f"found={article_id in ids}")
+            except Exception as exc:  # noqa: BLE001
+                detail = format_error(locals().get("resp"), exc)
+                record("Article search", False, detail)
+
+    except Exception as exc:  # noqa: BLE001
+        record("HTTP client setup", False, str(exc))
+
+    click.echo("-" * 60)
+    if all(results) and results:
+        click.echo("✅ Integration tests passed")
+        raise SystemExit(0)
+    click.echo("❌ Integration tests failed")
+    raise SystemExit(1)
+
+
 def main():
     """Main entry point."""
     cli()
