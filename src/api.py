@@ -198,7 +198,15 @@ async def search_articles(
             tag_id=tag_id,
             topic_ids=topic
         )
-        return {"article_id": article_ids}
+        return {
+            "article_ids": article_ids,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": len(article_ids),
+                "pages": (len(article_ids) + page_size - 1) // page_size
+            }
+        }
     except ValueError as e:
         raise_http_exception(
             status_code=status.HTTP_400_BAD_REQUEST,

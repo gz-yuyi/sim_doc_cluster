@@ -120,7 +120,24 @@ class ErrorResponse(BaseModel):
 class ArticleSearchResponse(BaseModel):
     """Response for article search endpoint."""
     
-    article_id: List[str]
+    article_ids: List[str]
+    pagination: Dict[str, int]
+    
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "article_ids": ["article_123", "article_456"],
+                    "pagination": {
+                        "page": 1,
+                        "page_size": 20,
+                        "total": 2,
+                        "pages": 1
+                    }
+                }
+            ]
+        }
+    }
 
 
 class SimilarityJob(BaseModel):
