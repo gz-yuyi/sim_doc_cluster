@@ -44,7 +44,8 @@ class ElasticsearchClient:
                         "tags": {
                             "type": "object",
                             "properties": {
-                                "id": {"type": "integer"},
+                                # Tag IDs can be large (e.g. 64-bit IDs), so store as long
+                                "id": {"type": "long"},
                                 "name": {"type": "keyword"}
                             }
                         },
