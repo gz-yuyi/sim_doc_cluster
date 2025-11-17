@@ -32,17 +32,19 @@ def serve(host, port, reload, debug):
     if debug:
         settings.debug = debug
     
-    # Create and configure app
-    app = create_app()
-    
-    # Start server
-    uvicorn.run(
-        app,
+    # Start server; when reload/workers are requested uvicorn needs an import string
+    uvicorn_kwargs = dict(
         host=settings.host,
         port=settings.port,
         reload=reload,
-        log_level="debug" if settings.debug else "info"
+        log_level="debug" if settings.debug else "info",
     )
+
+    if reload:
+        uvicorn.run("src.api:create_app", factory=True, **uvicorn_kwargs)
+    else:
+        app = create_app()
+        uvicorn.run(app, **uvicorn_kwargs)
 
 
 @cli.command()
