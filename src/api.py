@@ -5,6 +5,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from src.config import settings
 from src.models import ArticleCreate, ArticleSearchResponse, RecheckRequest
@@ -275,12 +276,13 @@ def create_app():
     # Add exception handlers
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request, exc):
-        return {
+        content = {
             "error": {
                 "code": exc.detail.get("error", {}).get("code", "UNKNOWN_ERROR"),
                 "message": exc.detail.get("error", {}).get("message", "Unknown error")
             },
             "trace_id": exc.detail.get("trace_id", "unknown")
         }
+        return JSONResponse(status_code=exc.status_code, content=content)
     
     return app
