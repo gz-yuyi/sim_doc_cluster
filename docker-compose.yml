@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   elasticsearch:
     image: crpi-lxfoqbwevmx9mc1q.cn-chengdu.personal.cr.aliyuncs.com/yuyi_tech/elasticsearch:8.11.3-ik
