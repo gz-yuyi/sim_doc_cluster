@@ -248,7 +248,7 @@ def integration_test(base_url, timeout):
 
             # Search article by title keyword
             try:
-                resp = client.get("/api/v1/clusters", params={"title": test_title})
+                resp = client.get("/api/v1/clusters/", params={"title": test_title})
                 resp.raise_for_status()
                 data = resp.json()
                 ids = data.get("article_ids", [])
