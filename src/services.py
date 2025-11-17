@@ -343,8 +343,8 @@ class ClusterService:
         end_time: Optional[str] = None,
         tag_id: Optional[str] = None,
         topic_ids: Optional[List[str]] = None
-    ) -> List[str]:
-        """Search articles by metadata filters."""
+    ) -> List[Dict[str, Any]]:
+        """Search articles by metadata filters and return article documents."""
         return self.es.search_articles(
             page=page,
             page_size=page_size,

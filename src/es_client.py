@@ -229,8 +229,8 @@ class ElasticsearchClient:
         end_time: Optional[str] = None,
         tag_id: Optional[str] = None,
         topic_ids: Optional[List[str]] = None
-    ) -> List[str]:
-        """Search articles by metadata filters and return article IDs."""
+    ) -> List[Dict[str, Any]]:
+        """Search articles by metadata filters and return article documents."""
         from_ = (page - 1) * page_size
         valid_sort_fields = {"publish_time", "created_at", "updated_at"}
         
@@ -283,12 +283,8 @@ class ElasticsearchClient:
         if must_queries:
             query_body["query"]["bool"]["must"] = must_queries
         
-        response = self.client.search(
-            index=self.articles_index,
-            body=query_body
-        )
-        
-        return [hit["_source"]["article_id"] for hit in response["hits"]["hits"]]
+        response = self.client.search(index=self.articles_index, body=query_body)
+        return [hit["_source"] for hit in response["hits"]["hits"]]
     
     def get_cluster_stats(self) -> Dict[str, Any]:
         """Get cluster statistics."""

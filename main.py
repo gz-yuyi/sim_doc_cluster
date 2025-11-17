@@ -251,7 +251,7 @@ def integration_test(base_url, timeout):
                 resp = client.get("/api/v1/clusters/", params={"title": test_title})
                 resp.raise_for_status()
                 data = resp.json()
-                ids = data.get("article_ids", [])
+                ids = [item.get("article_id") for item in data]
                 record("Article search", article_id in ids, f"found={article_id in ids}")
             except Exception as exc:  # noqa: BLE001
                 detail = format_error(locals().get("resp"), exc)

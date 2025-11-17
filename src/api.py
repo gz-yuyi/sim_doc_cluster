@@ -167,8 +167,8 @@ async def get_cluster(
     return response.dict()
 
 
-@cluster_router.get("/", response_model=ArticleSearchResponse)
-@cluster_router.get("", response_model=ArticleSearchResponse, include_in_schema=False)
+@cluster_router.get("/", response_model=List[ArticleSearchResponse])
+@cluster_router.get("", response_model=List[ArticleSearchResponse], include_in_schema=False)
 async def search_articles(
     page: int = Query(default=1, ge=1, description="Page number"),
     page_size: int = Query(default=20, ge=1, le=100, description="Items per page"),
@@ -186,7 +186,8 @@ async def search_articles(
     trace_id = generate_trace_id()
     
     try:
-        article_ids = cluster_service.search_articles(
+        # First, fetch base article documents for the search
+        articles = cluster_service.search_articles(
             page=page,
             page_size=page_size,
             sort=sort,
@@ -199,15 +200,39 @@ async def search_articles(
             tag_id=tag_id,
             topic_ids=topic
         )
-        return {
-            "article_ids": article_ids,
-            "pagination": {
-                "page": page,
-                "page_size": page_size,
-                "total": len(article_ids),
-                "pages": (len(article_ids) + page_size - 1) // page_size
-            }
+        
+        # Collect all cluster IDs present in the result set
+        cluster_ids = {
+            article.get("cluster_id")
+            for article in articles
+            if article.get("cluster_id")
         }
+        
+        # Preload articles for each cluster to avoid repeated queries
+        cluster_articles_map: Dict[str, List[Dict[str, Any]]] = {}
+        for cluster_id in cluster_ids:
+            cluster_articles_map[cluster_id] = cluster_service.es.search_articles_by_cluster(cluster_id)
+        
+        # Build response: for each article, include all other article IDs in the same cluster
+        results: List[ArticleSearchResponse] = []
+        for article in articles:
+            article_id = article["article_id"]
+            cluster_id = article.get("cluster_id")
+            similar_ids: List[str] = []
+            if cluster_id and cluster_id in cluster_articles_map:
+                similar_ids = [
+                    a["article_id"]
+                    for a in cluster_articles_map[cluster_id]
+                    if a["article_id"] != article_id
+                ]
+            results.append(
+                ArticleSearchResponse(
+                    article_id=article_id,
+                    similar_article_ids=similar_ids,
+                )
+            )
+        
+        return results
     except ValueError as e:
         raise_http_exception(
             status_code=status.HTTP_400_BAD_REQUEST,

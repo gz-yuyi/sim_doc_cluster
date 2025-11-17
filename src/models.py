@@ -118,26 +118,13 @@ class ErrorResponse(BaseModel):
 
 
 class ArticleSearchResponse(BaseModel):
-    """Response for article search endpoint."""
+    """Search result item for article search endpoint."""
     
-    article_ids: List[str]
-    pagination: Dict[str, int]
-    
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {
-                    "article_ids": ["article_123", "article_456"],
-                    "pagination": {
-                        "page": 1,
-                        "page_size": 20,
-                        "total": 2,
-                        "pages": 1
-                    }
-                }
-            ]
-        }
-    }
+    article_id: str = Field(..., description="Article ID")
+    similar_article_ids: List[str] = Field(
+        default_factory=list,
+        description="List of similar article IDs"
+    )
 
 
 class SimilarityJob(BaseModel):
