@@ -168,6 +168,7 @@ async def get_cluster(
 
 
 @cluster_router.get("/", response_model=ArticleSearchResponse)
+@cluster_router.get("", response_model=ArticleSearchResponse, include_in_schema=False)
 async def search_articles(
     page: int = Query(default=1, ge=1, description="Page number"),
     page_size: int = Query(default=20, ge=1, le=100, description="Items per page"),
