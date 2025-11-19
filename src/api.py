@@ -1,7 +1,7 @@
 """FastAPI routes and API endpoints for the document similarity clustering system."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -218,13 +218,13 @@ async def search_articles(
         for article in articles:
             article_id = article["article_id"]
             cluster_id = article.get("cluster_id")
-            similar_ids: List[str] = []
+            similar_ids: List[str] = [article_id]
             if cluster_id and cluster_id in cluster_articles_map:
-                similar_ids = [
+                similar_ids.extend(
                     a["article_id"]
                     for a in cluster_articles_map[cluster_id]
                     if a["article_id"] != article_id
-                ]
+                )
             results.append(
                 ArticleSearchResponse(
                     article_id=article_id,
