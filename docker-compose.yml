@@ -34,8 +34,6 @@ services:
       - redis
     networks:
       - sim-doc-network
-    volumes:
-      - .:/app
     command: uv run python main.py serve --host 0.0.0.0 --reload
 
   worker:
@@ -51,8 +49,6 @@ services:
       - redis
     networks:
       - sim-doc-network
-    volumes:
-      - .:/app
     command: uv run python main.py worker --count 100
 
 volumes:
