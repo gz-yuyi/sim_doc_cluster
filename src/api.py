@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.config import settings
-from src.models import ArticleCreate, ArticleSearchResponse, RecheckRequest
+from src.models import ArticleCreate, ArticleSearchPage, ArticleSearchResponse, RecheckRequest
 from src.services import article_service, cluster_service, health_service
 from src.utils import generate_trace_id, raise_http_exception, validate_article_id, validate_cluster_id
 
@@ -167,8 +167,8 @@ async def get_cluster(
     return response.dict()
 
 
-@cluster_router.get("/", response_model=List[ArticleSearchResponse])
-@cluster_router.get("", response_model=List[ArticleSearchResponse], include_in_schema=False)
+@cluster_router.get("/", response_model=ArticleSearchPage)
+@cluster_router.get("", response_model=ArticleSearchPage, include_in_schema=False)
 async def search_articles(
     page: int = Query(default=1, ge=1, description="Page number"),
     page_size: int = Query(default=20, ge=1, le=100, description="Items per page"),
@@ -176,7 +176,7 @@ async def search_articles(
     state: Optional[int] = Query(default=None, ge=0, le=2, description="Article state"),
     top: Optional[int] = Query(default=None, ge=0, le=1, description="Pinned flag"),
     title: Optional[str] = Query(default=None, description="Title keyword for fuzzy search"),
-    source: Optional[int] = Query(default=None, description="Source platform ID"),
+    source: Optional[str] = Query(default=None, description="Source platform ID or name"),
     start_time: Optional[datetime] = Query(default=None, description="Start publish time"),
     end_time: Optional[datetime] = Query(default=None, description="End publish time"),
     tag_id: Optional[str] = Query(default=None, description="Primary tag ID"),
@@ -187,7 +187,7 @@ async def search_articles(
     
     try:
         # First, fetch base article documents for the search
-        articles = cluster_service.search_articles(
+        search_result = cluster_service.search_articles(
             page=page,
             page_size=page_size,
             sort=sort,
@@ -201,7 +201,11 @@ async def search_articles(
             topic_ids=topic
         )
         
-        # Collect all cluster IDs present in the result set
+        articles = search_result.get("items", [])
+        total = search_result.get("total", 0)
+        total_pages = search_result.get("total_pages", 0)
+        
+        # Collect all cluster IDs present in the result set for batch hydration
         cluster_ids = {
             article.get("cluster_id")
             for article in articles
@@ -232,7 +236,13 @@ async def search_articles(
                 )
             )
         
-        return results
+        return ArticleSearchPage(
+            total=total,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages,
+            items=results
+        )
     except ValueError as e:
         raise_http_exception(
             status_code=status.HTTP_400_BAD_REQUEST,

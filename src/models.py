@@ -127,6 +127,19 @@ class ArticleSearchResponse(BaseModel):
     )
 
 
+class ArticleSearchPage(BaseModel):
+    """Paginated search response for article search endpoint."""
+    
+    total: int = Field(..., description="Total number of matched articles")
+    page: int = Field(..., description="Current page number")
+    page_size: int = Field(..., description="Page size")
+    total_pages: int = Field(..., description="Total number of pages")
+    items: List[ArticleSearchResponse] = Field(
+        default_factory=list,
+        description="Current page of article results"
+    )
+
+
 class SimilarityJob(BaseModel):
     """Model for similarity calculation job."""
     

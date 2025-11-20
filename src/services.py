@@ -1,5 +1,6 @@
 """Business logic services for the document similarity clustering system."""
 
+import math
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -343,9 +344,9 @@ class ClusterService:
         end_time: Optional[str] = None,
         tag_id: Optional[str] = None,
         topic_ids: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
-        """Search articles by metadata filters and return article documents."""
-        return self.es.search_articles(
+    ) -> Dict[str, Any]:
+        """Search articles by metadata filters and return article documents with pagination."""
+        search_result = self.es.search_articles(
             page=page,
             page_size=page_size,
             sort=sort or "publish_time:desc",
@@ -358,6 +359,17 @@ class ClusterService:
             tag_id=tag_id,
             topic_ids=topic_ids or []
         )
+        
+        total = search_result.get("total", 0)
+        total_pages = math.ceil(total / page_size) if page_size else 0
+        
+        return {
+            "items": search_result.get("items", []),
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages
+        }
 
 
 class HealthService:
