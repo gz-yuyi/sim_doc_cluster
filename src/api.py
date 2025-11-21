@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -170,6 +170,7 @@ async def get_cluster(
 @cluster_router.get("/", response_model=ArticleSearchPage)
 @cluster_router.get("", response_model=ArticleSearchPage, include_in_schema=False)
 async def search_articles(
+    request: Request,
     page: int = Query(default=1, ge=1, description="Page number"),
     page_size: int = Query(default=20, ge=1, le=100, description="Items per page"),
     sort: Optional[str] = Query(default=None, description="Sort field and order"),
@@ -186,6 +187,97 @@ async def search_articles(
     trace_id = generate_trace_id()
     
     try:
+        # Some clients incorrectly send filters in the body of a GET request (e.g. form-data in Postman).
+        # To keep the endpoint usable, merge query params with any body payload while still validating values.
+        body_params: Dict[str, Any] = {}
+        try:
+            body_bytes = await request.body()
+            if body_bytes:
+                content_type = (request.headers.get("content-type") or "").lower()
+                if "application/json" in content_type:
+                    body_params = await request.json()
+                elif "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+                    form_data = await request.form()
+                    body_params = dict(form_data)
+        except Exception:
+            # Ignore body parsing errors for GET; rely on validated query params instead.
+            body_params = {}
+
+        def pick_int(
+            name: str,
+            current: Optional[int],
+            minimum: Optional[int] = None,
+            maximum: Optional[int] = None
+        ) -> Optional[int]:
+            if name not in body_params:
+                return current
+            raw = body_params.get(name)
+            if raw in (None, ""):
+                return current
+            try:
+                value = int(raw)
+            except (TypeError, ValueError):
+                raise ValueError(f"Invalid {name}: expected integer")
+            if minimum is not None and value < minimum:
+                raise ValueError(f"{name} must be >= {minimum}")
+            if maximum is not None and value > maximum:
+                raise ValueError(f"{name} must be <= {maximum}")
+            return value
+
+        def pick_str(name: str, current: Optional[str]) -> Optional[str]:
+            if name not in body_params:
+                return current
+            raw = body_params.get(name)
+            if raw is None:
+                return None
+            value = str(raw).strip()
+            return value or None
+
+        def pick_datetime(name: str, current: Optional[datetime]) -> Optional[datetime]:
+            if name not in body_params:
+                return current
+            raw = body_params.get(name)
+            if raw in (None, ""):
+                return None
+            if isinstance(raw, datetime):
+                return raw
+            if isinstance(raw, str):
+                value = raw.strip()
+                if not value:
+                    return None
+                normalized = value.replace(" ", "T")
+                if normalized.endswith("Z"):
+                    normalized = normalized[:-1] + "+00:00"
+                try:
+                    return datetime.fromisoformat(normalized)
+                except ValueError:
+                    raise ValueError(f"Invalid {name}: expected ISO8601 datetime string")
+            raise ValueError(f"Invalid {name}: unsupported type")
+
+        def pick_list(name: str, current: Optional[List[str]]) -> Optional[List[str]]:
+            if name not in body_params:
+                return current
+            raw = body_params.get(name)
+            if raw in (None, ""):
+                return None
+            if isinstance(raw, list):
+                values = [str(item).strip() for item in raw if str(item).strip()]
+            else:
+                values = [part.strip() for part in str(raw).split(",") if part.strip()]
+            return values or None
+
+        page = pick_int("page", page, minimum=1)
+        page_size = pick_int("page_size", page_size, minimum=1, maximum=100)
+        sort = pick_str("sort", sort)
+        state = pick_int("state", state, minimum=0, maximum=2)
+        top = pick_int("top", top, minimum=0, maximum=1)
+        title = pick_str("title", title)
+        source = pick_str("source", source)
+        start_time = pick_datetime("start_time", start_time)
+        end_time = pick_datetime("end_time", end_time)
+        tag_id = pick_str("tag_id", tag_id)
+        topic = pick_list("topic", topic)
+
         # First, fetch base article documents for the search
         search_result = cluster_service.search_articles(
             page=page,
