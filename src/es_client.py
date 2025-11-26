@@ -104,12 +104,22 @@ class ElasticsearchClient:
     
     def index_article(self, article_data: Dict[str, Any]) -> str:
         """Index an article document."""
-        response = self.client.index(
-            index=self.articles_index,
-            id=article_data["article_id"],
-            body=article_data,
-            refresh="wait_for"
-        )
+        try:
+            response = self.client.index(
+                index=self.articles_index,
+                id=article_data["article_id"],
+                body=article_data,
+                refresh="wait_for"
+            )
+        except NotFoundError:
+            # Lazily initialize indices if they haven't been created yet
+            self.create_indices()
+            response = self.client.index(
+                index=self.articles_index,
+                id=article_data["article_id"],
+                body=article_data,
+                refresh="wait_for"
+            )
         return response["_id"]
     
     def get_article(self, article_id: str) -> Optional[Dict[str, Any]]:
@@ -135,12 +145,21 @@ class ElasticsearchClient:
     
     def index_cluster(self, cluster_data: Dict[str, Any]) -> str:
         """Index a cluster document."""
-        response = self.client.index(
-            index=self.clusters_index,
-            id=cluster_data["cluster_id"],
-            body=cluster_data,
-            refresh="wait_for"
-        )
+        try:
+            response = self.client.index(
+                index=self.clusters_index,
+                id=cluster_data["cluster_id"],
+                body=cluster_data,
+                refresh="wait_for"
+            )
+        except NotFoundError:
+            self.create_indices()
+            response = self.client.index(
+                index=self.clusters_index,
+                id=cluster_data["cluster_id"],
+                body=cluster_data,
+                refresh="wait_for"
+            )
         return response["_id"]
     
     def get_cluster(self, cluster_id: str) -> Optional[Dict[str, Any]]:
