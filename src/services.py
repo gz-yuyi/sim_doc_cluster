@@ -13,6 +13,7 @@ from src.models import (
 )
 from src.redis_client import redis_client
 from src.similarity import similarity_calculator
+from src.utils import create_new_cluster, merge_cluster_data
 
 
 class ArticleService:
@@ -62,6 +63,25 @@ class ArticleService:
             duplicate_article = exact_duplicates[0]
             cluster_id = duplicate_article.get("cluster_id")
             
+            # If the existing article never received a cluster, create one now
+            if not cluster_id:
+                cluster_id = self.similarity.extractor.generate_cluster_id(duplicate_article["article_id"])
+                duplicate_updates = {
+                    "cluster_id": cluster_id,
+                    "cluster_status": "matched",
+                    "similarity_score": 1.0,
+                    "updated_at": now_iso
+                }
+                self.es.update_article(duplicate_article["article_id"], duplicate_updates)
+                
+                # Ensure the cluster document exists
+                base_cluster = create_new_cluster(
+                    duplicate_article["article_id"],
+                    duplicate_article.get("title", ""),
+                    duplicate_article.get("content", "")
+                )
+                self.es.index_cluster(base_cluster)
+            
             article_doc = {
                 "article_id": article_data.article_id,
                 **common_fields,
@@ -75,6 +95,22 @@ class ArticleService:
             }
             
             self.es.index_article(article_doc)
+            
+            # Append this article into the cluster document
+            cluster_data = self.es.get_cluster(cluster_id)
+            if cluster_data:
+                updated_cluster = merge_cluster_data(cluster_data, article_data.article_id)
+                self.es.update_cluster(cluster_id, updated_cluster)
+            else:
+                # Fallback: recreate cluster if it was missing
+                recreated_cluster = create_new_cluster(
+                    duplicate_article["article_id"],
+                    duplicate_article.get("title", ""),
+                    duplicate_article.get("content", "")
+                )
+                updated_cluster = merge_cluster_data(recreated_cluster, article_data.article_id)
+                self.es.index_cluster(updated_cluster)
+            
             return
         
         # Search for candidates using MinHash LSH
