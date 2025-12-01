@@ -101,6 +101,13 @@ class ElasticsearchClient:
                 }
             }
             self.client.indices.create(index=self.clusters_index, body=clusters_mapping)
+
+    def clear_all_documents(self) -> None:
+        """Delete all documents by recreating indices."""
+        for index in [self.articles_index, self.clusters_index]:
+            if self.client.indices.exists(index=index):
+                self.client.indices.delete(index=index, ignore=[404])
+        self.create_indices()
     
     def index_article(self, article_data: Dict[str, Any]) -> str:
         """Index an article document."""

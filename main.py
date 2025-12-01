@@ -129,6 +129,40 @@ def config():
     click.echo(f"  Shingle Size: {settings.shingle_size}")
 
 
+@cli.command("clear-all")
+@click.option("--force", is_flag=True, help="Skip confirmation prompt")
+def clear_all(force):
+    """Clear all Redis tasks and Elasticsearch documents."""
+    if not force:
+        proceed = click.confirm(
+            "This will delete all Redis jobs and all Elasticsearch documents. Continue?",
+            default=False,
+        )
+        if not proceed:
+            click.echo("Aborted.")
+            return
+    
+    click.echo("Clearing Redis tasks...")
+    try:
+        redis_stats = redis_client.clear_all_tasks()
+        click.echo(
+            f"  Queue deleted: {redis_stats['queue_deleted']}, "
+            f"job keys removed: {redis_stats['jobs_deleted']}, "
+            f"pending markers removed: {redis_stats['pending_deleted']}"
+        )
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"✗ Failed to clear Redis: {exc}")
+        raise
+    
+    click.echo("Clearing Elasticsearch documents...")
+    try:
+        es_client.clear_all_documents()
+        click.echo("  ✓ Elasticsearch indices cleared and recreated")
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"✗ Failed to clear Elasticsearch documents: {exc}")
+        raise
+
+
 @cli.command()
 @click.option("--output", "-o", default="openapi.json", help="Output file path")
 def openapi(output):

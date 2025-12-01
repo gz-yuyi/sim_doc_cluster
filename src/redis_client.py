@@ -185,6 +185,24 @@ class RedisClient:
         except RedisError as e:
             return {"redis": "fail", "message": f"Redis error: {str(e)}"}
 
+    def clear_all_tasks(self) -> Dict[str, int]:
+        """Clear all queued jobs, job metadata and pending markers."""
+        queue_deleted = self.client.delete(self.queue_name)
+        
+        job_deleted = 0
+        for key in self.client.scan_iter(f"{self.job_prefix}*"):
+            job_deleted += int(self.client.delete(key))
+        
+        pending_deleted = 0
+        for key in self.client.scan_iter(f"{self.pending_prefix}*"):
+            pending_deleted += int(self.client.delete(key))
+        
+        return {
+            "queue_deleted": queue_deleted,
+            "jobs_deleted": job_deleted,
+            "pending_deleted": pending_deleted,
+        }
+
 
 # Global Redis client instance
 redis_client = RedisClient()
