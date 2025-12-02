@@ -189,14 +189,18 @@ def openapi(output):
 @cli.command("integration-test")
 @click.option("--base-url", default="http://localhost:8000", show_default=True, help="Service base URL")
 @click.option("--timeout", default=10, show_default=True, type=int, help="HTTP request timeout in seconds")
-def integration_test(base_url, timeout):
-    """Run integration tests against the API service."""
+@click.option("--assets-dir", default="assets", show_default=True, help="Directory containing test documents")
+def integration_test(base_url, timeout, assets_dir):
+    """Run integration tests against the API service using prepared assets."""
+    import time
     import uuid
     from datetime import datetime, timezone
+    from pathlib import Path
 
     import httpx
 
     click.echo(f"Running integration tests against {base_url}")
+    click.echo(f"Using assets from {assets_dir}")
     click.echo("-" * 60)
 
     results = []
@@ -219,78 +223,188 @@ def integration_test(base_url, timeout):
             body = response.text
         return f"{error} | status={response.status_code} body={body}"
 
-    article_id = f"it_{uuid.uuid4().hex[:12]}"
-    publish_time = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    test_title = f"Integration Test {article_id}"
+    assets_path = Path(assets_dir)
+    if not assets_path.exists():
+        click.echo(f"Error: Assets directory '{assets_dir}' not found.")
+        raise SystemExit(1)
+
+    run_suffix = uuid.uuid4().hex[:6]
+    doc_groups = {}
+    all_docs = []
+
+    for group_dir in sorted(assets_path.iterdir()):
+        if not group_dir.is_dir() or not group_dir.name.startswith("doc_group"):
+            continue
+        docs: list[dict[str, str]] = []
+        for file_path in sorted(group_dir.glob("*.txt")):
+            content = file_path.read_text(encoding="utf-8")
+            lines = [line.strip() for line in content.splitlines() if line.strip()]
+            title = lines[0] if lines else file_path.stem
+            if len(title) > 120:
+                title = f"{title[:117]}..."
+            article_id = f"it_{run_suffix}_{group_dir.name}_{file_path.stem}"
+            doc_info = {
+                "article_id": article_id,
+                "title": title,
+                "content": content,
+                "group": group_dir.name,
+                "file_path": str(file_path),
+            }
+            docs.append(doc_info)
+            all_docs.append(doc_info)
+        if docs:
+            doc_groups[group_dir.name] = docs
+
+    if not all_docs:
+        click.echo("No document groups found in assets directory.")
+        raise SystemExit(1)
+
+    status_poll_timeout = 90
+    status_poll_interval = 2
 
     try:
         with httpx.Client(base_url=base_url, timeout=timeout) as client:
             # Health check
+            resp = None
             try:
                 resp = client.get("/api/v1/system/health")
                 resp.raise_for_status()
                 data = resp.json()
                 record("Health endpoint", True, f"status={data.get('status')}")
             except Exception as exc:  # noqa: BLE001
-                detail = format_error(locals().get("resp"), exc)
+                detail = format_error(resp, exc)
                 record("Health endpoint", False, detail)
+                raise SystemExit(1)
 
-            # Submit article
-            payload = {
-                "article_id": article_id,
-                "title": test_title,
-                "content": "Integration test content",
-                "publish_time": publish_time,
-                "source": "integration_test",
-                "state": 1,
-                "top": 0,
-                "tags": [{"id": 9999, "name": "integration"}],
-                "topic": [{"id": "topic_integration", "name": "integration"}],
-            }
-            try:
-                resp = client.post("/api/v1/articles/", json=payload)
-                resp.raise_for_status()
-                record("Submit article", True)
-            except Exception as exc:  # noqa: BLE001
-                detail = format_error(locals().get("resp"), exc)
-                record("Submit article", False, detail)
+            # Submit articles
+            click.echo("Submitting articles...")
+            for group_name, docs in doc_groups.items():
+                click.echo(f"\nProcessing group: {group_name}")
+                for doc in docs:
+                    payload = {
+                        "article_id": doc["article_id"],
+                        "title": doc["title"],
+                        "content": doc["content"],
+                        "publish_time": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+                        "source": "integration_test_assets",
+                        "state": 1,
+                        "top": 0,
+                        "tags": [{"id": 9999, "name": "test"}],
+                        "topic": [{"id": "topic_integration", "name": "integration"}],
+                    }
+                    resp = None
+                    try:
+                        resp = client.post("/api/v1/articles/", json=payload)
+                        resp.raise_for_status()
+                        record(f"Submit {doc['article_id']}", True)
+                    except Exception as exc:  # noqa: BLE001
+                        detail = format_error(resp, exc)
+                        record(f"Submit {doc['article_id']}", False, detail)
 
-            # Fetch article
-            try:
-                resp = client.get(f"/api/v1/articles/{article_id}")
-                resp.raise_for_status()
-                data = resp.json()
-                returned_id = data.get("article", {}).get("article_id")
-                record("Fetch article", returned_id == article_id, f"id={returned_id}")
-            except Exception as exc:  # noqa: BLE001
-                detail = format_error(locals().get("resp"), exc)
-                record("Fetch article", False, detail)
+            # Poll until worker completes
+            click.echo("\nWaiting for worker completion...")
+            pending = {doc["article_id"]: doc for doc in all_docs}
+            article_cache = {}
+            deadline = time.time() + status_poll_timeout
 
-            # Similar articles (expected 404 while pending or 200 if ready)
-            try:
-                resp = client.get(f"/api/v1/articles/{article_id}/similar")
-                if resp.status_code == 404:
-                    error_code = resp.json().get("error", {}).get("code")
-                    expected = error_code == "CLUSTER_PENDING"
-                    record("Similar articles", expected, f"status=404 code={error_code}")
-                else:
+            while pending and time.time() < deadline:
+                progress = False
+                for article_id in list(pending.keys()):
+                    resp = None
+                    try:
+                        resp = client.get(f"/api/v1/articles/{article_id}")
+                        resp.raise_for_status()
+                        payload = resp.json()
+                        article_data = payload.get("article", {})
+                        status_value = article_data.get("cluster_status")
+                        if status_value and status_value != "pending":
+                            detail = f"status={status_value} cluster={article_data.get('cluster_id')}"
+                            record(f"Article status {article_id}", True, detail)
+                            article_cache[article_id] = payload
+                            pending.pop(article_id)
+                            progress = True
+                    except Exception as exc:  # noqa: BLE001
+                        detail = format_error(resp, exc)
+                        record(f"Article status {article_id}", False, detail)
+                        pending.pop(article_id)
+                if pending and not progress:
+                    time.sleep(status_poll_interval)
+
+            for article_id in list(pending.keys()):
+                record(f"Article status {article_id}", False, "timeout waiting for worker")
+                pending.pop(article_id)
+
+            # Verify similar articles endpoint
+            for doc in all_docs:
+                article_id = doc["article_id"]
+                if article_id not in article_cache:
+                    continue
+                expected_peers = {
+                    peer["article_id"]
+                    for peer in doc_groups.get(doc["group"], [])
+                    if peer["article_id"] != article_id
+                }
+                resp = None
+                try:
+                    resp = client.get(f"/api/v1/articles/{article_id}/similar")
                     resp.raise_for_status()
-                    record("Similar articles", True, "status=200")
-            except Exception as exc:  # noqa: BLE001
-                detail = format_error(locals().get("resp"), exc)
-                record("Similar articles", False, detail)
+                    data = resp.json()
+                    similar_items = data.get("articles", [])
+                    found_ids = {item.get("article_id") for item in similar_items}
+                    found_count = sum(1 for peer in expected_peers if peer in found_ids)
+                    detail = f"found {found_count}/{len(expected_peers)} expected peers"
+                    success = found_count == len(expected_peers)
+                    record(f"Similar articles {article_id}", success, detail)
+                except Exception as exc:  # noqa: BLE001
+                    detail = format_error(resp, exc)
+                    record(f"Similar articles {article_id}", False, detail)
 
-            # Search article by title keyword
-            try:
-                resp = client.get("/api/v1/clusters/", params={"title": test_title})
-                resp.raise_for_status()
-                data = resp.json()
-                items = data.get("items", data if isinstance(data, list) else [])
-                ids = [item.get("article_id") for item in items]
-                record("Article search", article_id in ids, f"found={article_id in ids}")
-            except Exception as exc:  # noqa: BLE001
-                detail = format_error(locals().get("resp"), exc)
-                record("Article search", False, detail)
+            # Verify cluster detail endpoint
+            cluster_members = {}
+            for payload in article_cache.values():
+                article_data = payload.get("article", {})
+                cluster_id = article_data.get("cluster_id")
+                if not cluster_id:
+                    continue
+                cluster_members.setdefault(cluster_id, set()).add(article_data.get("article_id"))
+
+            for cluster_id, members in cluster_members.items():
+                resp = None
+                try:
+                    resp = client.get(
+                        f"/api/v1/clusters/{cluster_id}",
+                        params={"include_articles": "true"},
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    articles = data.get("articles") or []
+                    returned_ids = {article.get("article_id") for article in articles}
+                    success = members.issubset(returned_ids)
+                    detail = f"cluster size={len(returned_ids)} expected_members={len(members)}"
+                    record(f"Cluster detail {cluster_id}", success, detail)
+                except Exception as exc:  # noqa: BLE001
+                    detail = format_error(resp, exc)
+                    record(f"Cluster detail {cluster_id}", False, detail)
+
+            # Verify article search endpoint
+            for doc in all_docs:
+                article_id = doc["article_id"]
+                resp = None
+                try:
+                    resp = client.get(
+                        "/api/v1/clusters/",
+                        params={"title": doc["title"], "page_size": 50},
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    items = data.get("items", [])
+                    ids = {item.get("article_id") for item in items}
+                    success = article_id in ids
+                    detail = f"found={success} total_items={len(items)}"
+                    record(f"Article search {article_id}", success, detail)
+                except Exception as exc:  # noqa: BLE001
+                    detail = format_error(resp, exc)
+                    record(f"Article search {article_id}", False, detail)
 
     except Exception as exc:  # noqa: BLE001
         record("HTTP client setup", False, str(exc))

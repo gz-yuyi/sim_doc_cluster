@@ -140,13 +140,22 @@ class ArticleSearchPage(BaseModel):
     )
 
 
+class SimilarityCandidate(BaseModel):
+    """Candidate article considered during similarity calculation."""
+    
+    article_id: str
+    cluster_id: Optional[str] = None
+    shingles: List[str] = Field(default_factory=list)
+    simhash: Optional[str] = None
+
+
 class SimilarityJob(BaseModel):
     """Model for similarity calculation job."""
     
     job_id: str
     article_id: str
     shingles: List[str]
-    candidates: List[Dict[str, str]]
+    candidates: List[SimilarityCandidate] = Field(default_factory=list)
     created_at: datetime
     status: str = "pending"
 

@@ -144,7 +144,8 @@ class ElasticsearchClient:
                 index=self.articles_index,
                 id=article_id,
                 body={"doc": updates},
-                refresh="wait_for"
+                refresh="wait_for",
+                retry_on_conflict=3
             )
             return True
         except NotFoundError:
