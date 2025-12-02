@@ -49,7 +49,7 @@ services:
       - redis
     networks:
       - sim-doc-network
-    command: uv run python main.py worker --count 100
+    command: uv run python main.py worker
 
 volumes:
   es_data:
