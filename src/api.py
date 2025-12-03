@@ -294,6 +294,18 @@ async def search_articles(
         )
         
         articles = search_result.get("items", [])
+        
+        # Deduplicate articles by cluster so the latest article represents the group.
+        seen_groups: set[str] = set()
+        deduped_articles: List[Dict[str, Any]] = []
+        for article in articles:
+            cluster_id = article.get("cluster_id")
+            group_key = cluster_id or article["article_id"]
+            if group_key in seen_groups:
+                continue
+            seen_groups.add(group_key)
+            deduped_articles.append(article)
+        articles = deduped_articles
         total = search_result.get("total", 0)
         total_pages = search_result.get("total_pages", 0)
         
